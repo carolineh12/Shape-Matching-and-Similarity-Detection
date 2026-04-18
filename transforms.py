@@ -61,13 +61,13 @@ def add_salt_pepper_noise(binary, amount=0.05):
 def erode_boundary(binary, radius=2):
     """Simulate boundary damage by erosion."""
     selem = morphology.disk(radius)
-    return morphology.binary_erosion(binary.astype(bool), selem).astype(np.uint8)
- 
- 
+    return morphology.erosion(binary.astype(bool), selem).astype(np.uint8)
+
+
 def dilate_boundary(binary, radius=2):
     """Simulate segmentation error by dilation."""
     selem = morphology.disk(radius)
-    return morphology.binary_dilation(binary.astype(bool), selem).astype(np.uint8)
+    return morphology.dilation(binary.astype(bool), selem).astype(np.uint8)
  
  
 def blur_and_threshold(binary, sigma=2.0):

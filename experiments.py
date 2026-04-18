@@ -43,13 +43,7 @@ def pairwise_distance_matrix(shape_dict, method="similitude"):
 # ─────────────────────────────────────────────
 # Classifier
 # ─────────────────────────────────────────────
- 
-def is_match(vec1, vec2, threshold):
-    """Return (match: bool, distance: float) given a threshold."""
-    distance = euclidean_distance(vec1, vec2)
-    return distance <= threshold, distance
- 
- 
+
 def classify_pairs(shape_dict, threshold, method="similitude"):
     """
     For every pair of shapes, predict match/no-match and return results.
@@ -211,12 +205,41 @@ def per_distortion_accuracy(shape_dict, diff_distances, method="similitude"):
         st = compute_matching_stats(s_dists, diff_distances)
         results.append({"distortion": dist_name, **st})
     return results
- 
- 
+
+def preprocessing_comparison(image, shape_name, method="similitude"):
+    """
+    Compare descriptor stability with and without full preprocessing.
+    Returns the intermediate images and the descriptor distance
+    between the raw-binary version and the fully preprocessed version.
+    """
+    from preprocessing import to_grayscale, binarize_image, clean_binary, largest_component
+
+    gray = to_grayscale(image)
+    binary = binarize_image(gray)
+
+    # Without cleaning: just take largest component from raw binary
+    raw_component = largest_component(binary)
+
+    # With full preprocessing
+    cleaned = clean_binary(binary)
+    clean_component = largest_component(cleaned)
+
+    d_raw = extract_descriptor(raw_component, method=method)
+    d_clean = extract_descriptor(clean_component, method=method)
+    dist = euclidean_distance(d_raw, d_clean)
+
+    return {
+        "shape": shape_name,
+        "gray": gray,
+        "binary": binary,
+        "raw_component": raw_component,
+        "cleaned": cleaned,
+        "clean_component": clean_component,
+        "distance": dist,
+    }
+
 def print_summary_table(stats, per_dist, save_path=None):
-    """Print the overall stats and per-distortion accuracy tables, and optionally save to CSV."""
-    import csv
- 
+    """Print the overall stats table and per-distortion accuracy table."""
     print("\n  Overall Matching Statistics:")
     print(f"  {'Metric':<35} {'Value':>10}")
     print("  " + "-"*47)
@@ -226,7 +249,7 @@ def print_summary_table(stats, per_dist, save_path=None):
     print(f"  {'Different-shape std':<35} {stats['diff_std']:>10.4f}")
     print(f"  {'Classification threshold':<35} {stats['threshold']:>10.4f}")
     print(f"  {'Overall accuracy':<35} {stats['accuracy']*100:>9.1f}%")
- 
+
     print("\n  Per-Distortion Accuracy:")
     print(f"  {'Distortion':<25} {'Same μ':>8} {'Same σ':>8} {'Threshold':>10} {'Accuracy':>10}")
     print("  " + "-"*65)
@@ -234,33 +257,35 @@ def print_summary_table(stats, per_dist, save_path=None):
         print(f"  {row['distortion']:<25} {row['same_mean']:>8.4f} "
               f"{row['same_std']:>8.4f} {row['threshold']:>10.4f} "
               f"{row['accuracy']*100:>9.1f}%")
- 
-    if save_path:
+
+    if save_path is not None:
+        import csv
+
         with open(save_path, "w", newline="") as f:
             writer = csv.writer(f)
- 
+
             writer.writerow(["Overall Matching Statistics"])
             writer.writerow(["Metric", "Value"])
-            writer.writerow(["Same-shape mean distance", f"{stats['same_mean']:.4f}"])
-            writer.writerow(["Same-shape std", f"{stats['same_std']:.4f}"])
-            writer.writerow(["Different-shape mean distance", f"{stats['diff_mean']:.4f}"])
-            writer.writerow(["Different-shape std", f"{stats['diff_std']:.4f}"])
-            writer.writerow(["Classification threshold", f"{stats['threshold']:.4f}"])
-            writer.writerow(["Overall accuracy", f"{stats['accuracy']*100:.1f}%"])
+            writer.writerow(["Same-shape mean distance", stats["same_mean"]])
+            writer.writerow(["Same-shape std", stats["same_std"]])
+            writer.writerow(["Different-shape mean distance", stats["diff_mean"]])
+            writer.writerow(["Different-shape std", stats["diff_std"]])
+            writer.writerow(["Classification threshold", stats["threshold"]])
+            writer.writerow(["Overall accuracy", stats["accuracy"]])
+
             writer.writerow([])
             writer.writerow(["Per-Distortion Accuracy"])
-            writer.writerow(["Distortion", "Same-Shape Mean", "Same-Shape Std", "Threshold", "Accuracy"])
+            writer.writerow(["Distortion", "Same Mean", "Same Std", "Threshold", "Accuracy"])
+
             for row in per_dist:
                 writer.writerow([
                     row["distortion"],
-                    f"{row['same_mean']:.4f}",
-                    f"{row['same_std']:.4f}",
-                    f"{row['threshold']:.4f}",
-                    f"{row['accuracy']*100:.1f}%",
+                    row["same_mean"],
+                    row["same_std"],
+                    row["threshold"],
+                    row["accuracy"],
                 ])
-        print(f"\n  Saved: {save_path}")
- 
- 
+
 # ─────────────────────────────────────────────
 # Plotting
 # ─────────────────────────────────────────────
@@ -277,8 +302,46 @@ def plot_pipeline(stages, titles, suptitle="Preprocessing Pipeline", save_path=N
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
- 
- 
+
+def plot_preprocessing_comparison(result, save_path=None):
+    """
+    Show how preprocessing changes the extracted shape mask.
+    """
+    fig, axes = plt.subplots(1, 5, figsize=(16, 4))
+
+    images = [
+        result["gray"],
+        result["binary"],
+        result["raw_component"],
+        result["cleaned"],
+        result["clean_component"],
+    ]
+    titles = [
+        "Grayscale",
+        "Raw Binary",
+        "Largest Component\n(no cleaning)",
+        "Cleaned Binary",
+        "Largest Component\n(with cleaning)",
+    ]
+
+    for ax, img, title in zip(axes, images, titles):
+        ax.imshow(img, cmap="gray")
+        ax.set_title(title, fontsize=10)
+        ax.axis("off")
+
+    plt.suptitle(
+        f"Preprocessing Comparison — {result['shape']}  |  Descriptor distance = {result['distance']:.4f}",
+        fontsize=13,
+        fontweight="bold"
+    )
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=120)
+        plt.close()
+    else:
+        plt.show()
+        
 def plot_shape_gallery(shape_dict, title="Shape Gallery", save_path=None):
     names = list(shape_dict.keys())
     n = len(names)
@@ -519,39 +582,3 @@ def print_failure_report(shape_dict, method="similitude"):
  
     hardest = pairs[0]
     easiest = pairs[-1]
-    print(f"""
-  Discussion:
- 
-  Hardest pair: {hardest[0]} vs {hardest[1]} (distance = {hardest[2]:.4f})
-    Both shapes are convex with smooth, rotationally symmetric boundaries.
-    Their Hu moment vectors are nearly identical, making them the most
-    challenging pair for this descriptor to distinguish.
- 
-  Easiest pair: {easiest[0]} vs {easiest[1]} (distance = {easiest[2]:.4f})
-    These shapes have strongly contrasting moment profiles, so they remain
-    well-separated even under significant noise or transformation.
- 
-  Rotation invariance:
-    Descriptors remain stable under rotation as expected from Hu moment
-    theory. Small residual drift at large angles is due to pixelation
-    artefacts at the shape boundary after transformation.
- 
-  Noise sensitivity:
-    Salt-and-pepper noise causes higher descriptor drift than Gaussian
-    noise at equivalent intensity levels. Isolated flipped pixels shift
-    boundary moment contributions more sharply than Gaussian perturbations.
- 
-  Boundary damage (erosion / dilation):
-    Erosion and dilation at small radii (<=3 px) have minimal impact.
-    Larger radii alter the shape's aspect ratio and area, which are
-    encoded in the lower-order moments, increasing descriptor distance.
- 
-  Scale invariance:
-    Descriptors are mathematically scale-invariant via normalised moments.
-    Residual error at extreme scale factors (< 0.5x) is caused by loss
-    of shape detail at low resolution.
- 
-  Translation invariance:
-    Descriptors are fully translation-invariant by construction (central
-    moments). Near-zero distances for all translation cases confirm this.
-    """)

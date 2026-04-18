@@ -18,12 +18,14 @@ from experiments import (
     # similarity
     descriptor_distance, pairwise_distance_matrix,
     # classifier
-    is_match, classify_pairs,
+    classify_pairs,
     # experiment runner
     run_rotation, run_scaling, run_translation,
     run_gaussian_noise, run_salt_pepper, run_erosion, run_dilation, run_blur,
     # accuracy analysis
     collect_same_diff_distances, per_distortion_accuracy, print_summary_table,
+    # new preprocessing comparison
+    preprocessing_comparison, plot_preprocessing_comparison,
     # plotting
     plot_pipeline, plot_shape_gallery, plot_experiment,
     plot_combined_noise, plot_segmentation_error,
@@ -183,16 +185,28 @@ def phase2():
         save_path=os.path.join(OUTPUT_DIR, "phase2_shapes.png"),
     )
     print("  Saved: phase2_shapes.png")
- 
- 
-# ─────────────────────────────────────────────
-# Phase 3 – Experiments  (Team Member 2)
-# ─────────────────────────────────────────────
- 
- 
+
 def phase2b():
     print("\n" + "="*60)
-    print("PHASE 2b: Real Silhouette Gallery")
+    print("PHASE 2B: Preprocessing Comparison")
+    print("="*60)
+
+    # Use a noisy star because complex boundaries make preprocessing effects easier to see
+    star = SHAPES["Star"]
+    noisy_star = add_salt_pepper_noise(star, amount=0.08)
+
+    result = preprocessing_comparison(noisy_star, "Star", method=METHOD)
+
+    plot_preprocessing_comparison(
+        result,
+        save_path=os.path.join(OUTPUT_DIR, "phase2b_preprocessing_comparison.png"),
+    )
+    print("  Saved: phase2b_preprocessing_comparison.png")
+    print(f"  Descriptor distance (raw vs cleaned): {result['distance']:.4f}")
+
+def phase2c():
+    print("\n" + "="*60)
+    print("PHASE 2C: Real Silhouette Gallery")
     print("="*60)
  
     if not SILHOUETTES:
@@ -202,10 +216,10 @@ def phase2b():
  
     plot_shape_gallery(
         SILHOUETTES,
-        title="Phase 2b – Real Object Silhouettes",
-        save_path=os.path.join(OUTPUT_DIR, "phase2_silhouettes.png"),
+        title="Phase 2c – Real Object Silhouettes",
+        save_path=os.path.join(OUTPUT_DIR, "phase2c_silhouettes.png"),
     )
-    print("  Saved: phase2_silhouettes.png")
+    print("  Saved: phase2c_silhouettes.png")
  
     # Show pipeline on one silhouette to demonstrate real-image preprocessing
     from preprocessing import to_grayscale, binarize_image, clean_binary, largest_component
@@ -230,11 +244,14 @@ def phase2b():
     plot_pipeline(
         stages=[raw, gray, binary, cleaned, comp],
         titles=["Raw silhouette", "Grayscale", "Binary (Otsu)", "Cleaned", "Largest Component"],
-        suptitle=f"Phase 2b – Real Silhouette Preprocessing Pipeline ({first_name})",
-        save_path=os.path.join(OUTPUT_DIR, "phase2_silhouette_pipeline.png"),
+        suptitle=f"Phase 2c – Real Silhouette Preprocessing Pipeline ({first_name})",
+        save_path=os.path.join(OUTPUT_DIR, "phase2c_silhouette_pipeline.png"),
     )
-    print("  Saved: phase2_silhouette_pipeline.png")
+    print("  Saved: phase2c_silhouette_pipeline.png")
  
+# ─────────────────────────────────────────────
+# Phase 3 – Experiments  (Team Member 2)
+# ─────────────────────────────────────────────
  
 def phase3():
     print("\n" + "="*60)
@@ -316,13 +333,13 @@ def phase3():
     )
     print("  Saved: phase3_noise_combined.png")
  
-    # --- Boundary erosion: Circle (smooth) vs Pentagon (multi-sided) ---
-    radii = [1, 2, 3, 5, 7, 10]
-    er_circ = [r["distance"] for r in run_erosion(circle,   "Circle",   radii, METHOD)]
-    er_pent = [r["distance"] for r in run_erosion(pentagon, "Pentagon", radii, METHOD)]
+    # --- Boundary erosion: Circle (smooth) vs Star ---
+    radii = [1, 2, 3, 5, 7, 10, 12, 15]
+    er_circ = [r["distance"] for r in run_erosion(circle, "Circle", radii, METHOD)]
+    er_star = [r["distance"] for r in run_erosion(star,   "Star",   radii, METHOD)]
     plot_experiment(radii,
-        {"Circle (smooth boundary)": er_circ, "Pentagon (multi-sided)": er_pent},
-        _cross_shape_distance(circle, pentagon),
+        {"Circle (smooth boundary)": er_circ, "Star (thin spikes)": er_star},
+        _cross_shape_distance(circle, star),
         "Erosion Radius (px)", "Phase 3 – Distance vs Boundary Erosion",
         save_path=os.path.join(OUTPUT_DIR, "phase3_boundary_damage.png"))
     print("  Saved: phase3_boundary_damage.png")
@@ -421,6 +438,7 @@ def main():
     phase1()
     phase2()
     phase2b()
+    phase2c()
     phase3()
     phase4()
     print("\n" + "="*60)
