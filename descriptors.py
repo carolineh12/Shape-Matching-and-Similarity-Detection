@@ -1,9 +1,8 @@
 import numpy as np
 from skimage.measure import moments, moments_central, moments_normalized, moments_hu
 
-
+# Compute Hu moments (7-dimensional, invariant to rotation/scale/translation).
 def hu_moment_descriptor(binary):
-    """Compute Hu moments (7-dimensional, invariant to rotation/scale/translation)."""
     image = binary.astype(float)
     mu = moments_central(image)
     nu = moments_normalized(mu)
@@ -12,14 +11,8 @@ def hu_moment_descriptor(binary):
     hu = np.sign(hu) * np.log1p(np.abs(hu))
     return hu
 
-
+# Similitude moment descriptor (invariant to translation, rotation, and scale); computes normalized central moments up to order 3, results in 7-element vector; equivalent to Hu moments but derived explicitly from normalized central moments.
 def similitude_moment_descriptor(binary):
-    """
-    Similitude moment descriptor (invariant to translation, rotation, and scale).
-    Computes normalized central moments up to order 3, yielding a 7-element vector.
-    These are equivalent to the Hu moments but derived explicitly from normalized
-    central moments for clarity.
-    """
     image = binary.astype(float)
     if image.sum() == 0:
         return np.zeros(7)
@@ -37,8 +30,7 @@ def similitude_moment_descriptor(binary):
     # Central moments up to order 3
     mu = moments_central(image, center=(cx, cy), order=3)
 
-    # Normalised central moments (scale invariant)
-    # nu_pq = mu_pq / mu_00^(1 + (p+q)/2)
+    # Normalised central moments
     def nu(p, q):
         denom = m00 ** (1 + (p + q) / 2.0)
         return mu[p, q] / denom if denom != 0 else 0.0
@@ -68,10 +60,10 @@ def similitude_moment_descriptor(binary):
           (3 * (n30 + n12) ** 2 - (n21 + n03) ** 2))
 
     hu = np.array([h1, h2, h3, h4, h5, h6, h7])
+
     # Log transform for numerical stability
     hu = np.sign(hu) * np.log1p(np.abs(hu))
     return hu
-
 
 def extract_descriptor(binary, method="similitude"):
     if method == "similitude":
