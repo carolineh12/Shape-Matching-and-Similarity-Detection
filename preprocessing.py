@@ -1,9 +1,8 @@
 import numpy as np
 from skimage import color, filters, morphology, measure, util
 
-
+# convert RGB or grayscale image to float grayscale in [0, 1]
 def to_grayscale(image):
-    """Convert RGB or grayscale image to float grayscale in [0, 1]."""
     if image.ndim == 3:
         gray = color.rgb2gray(image)
     else:
@@ -12,17 +11,15 @@ def to_grayscale(image):
         gray = gray / 255.0
     return gray
 
-
+# convert grayscale image to binary using Otsu or a provided threshold
 def binarize_image(gray, threshold=None):
-    """Convert grayscale image to binary using Otsu or a provided threshold."""
     if threshold is None:
         threshold = filters.threshold_otsu(gray)
     binary = gray < threshold if np.mean(gray) > 0.5 else gray > threshold
     return binary.astype(np.uint8)
 
-
+# remove small objects/holes and apply light morphology
 def clean_binary(binary, min_size=100):
-    """Remove small objects/holes and apply light morphology."""
     mask = binary.astype(bool)
     mask = morphology.remove_small_objects(mask, min_size=min_size)
     mask = morphology.remove_small_holes(mask, area_threshold=min_size)
@@ -30,9 +27,8 @@ def clean_binary(binary, min_size=100):
     mask = morphology.closing(mask, morphology.disk(2))
     return mask.astype(np.uint8)
 
-
+# keep only the largest connected component
 def largest_component(binary):
-    """Keep only the largest connected component."""
     labels = measure.label(binary)
     props = measure.regionprops(labels)
     if not props:
@@ -41,21 +37,18 @@ def largest_component(binary):
     mask = labels == largest_region.label
     return mask.astype(np.uint8)
 
-
+# simulate segmentation under-detection by erosion
 def erode_shape(binary, radius=3):
-    """Simulate segmentation under-detection by erosion."""
     selem = morphology.disk(radius)
     return morphology.erosion(binary.astype(bool), selem).astype(np.uint8)
 
-
+# simulate segmentation over-detection by dilation
 def dilate_shape(binary, radius=3):
-    """Simulate segmentation over-detection by dilation."""
     selem = morphology.disk(radius)
     return morphology.dilation(binary.astype(bool), selem).astype(np.uint8)
 
-
+# full preprocessing pipeline from grayscale -> binary -> cleaned -> largest component
 def preprocess_image(image, threshold=None, min_size=100):
-    """Full preprocessing pipeline: grayscale → binary → cleaned → largest component."""
     gray = to_grayscale(image)
     binary = binarize_image(gray, threshold=threshold)
     cleaned = clean_binary(binary, min_size=min_size)
