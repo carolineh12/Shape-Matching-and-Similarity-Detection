@@ -24,8 +24,8 @@ def binarize_image(gray, threshold=None):
 def clean_binary(binary, min_size=100):
     """Remove small objects/holes and apply light morphology."""
     mask = binary.astype(bool)
-    mask = morphology.remove_small_objects(mask, max_size=min_size)
-    mask = morphology.remove_small_holes(mask, max_size=min_size)
+    mask = morphology.remove_small_objects(mask, min_size=min_size)
+    mask = morphology.remove_small_holes(mask, area_threshold=min_size)
     mask = morphology.opening(mask, morphology.disk(2))
     mask = morphology.closing(mask, morphology.disk(2))
     return mask.astype(np.uint8)
