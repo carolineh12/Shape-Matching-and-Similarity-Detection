@@ -2,28 +2,28 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-
+ 
 from preprocessing import largest_component
 from transforms import (
     rotate_image, scale_image, translate_image,
     add_gaussian_noise, add_salt_pepper_noise,
-    erode_boundary, dilate_boundary,
+    erode_boundary, dilate_boundary, blur_and_threshold,
 )
 from descriptors import extract_descriptor
 from matching import euclidean_distance, compute_threshold, compute_matching_stats
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # Similarity
 # ─────────────────────────────────────────────
-
+ 
 def descriptor_distance(binary1, binary2, method="similitude"):
     """Extract descriptors from two binary images and return their Euclidean distance."""
     d1 = extract_descriptor(binary1, method=method)
     d2 = extract_descriptor(binary2, method=method)
     return euclidean_distance(d1, d2)
-
-
+ 
+ 
 def pairwise_distance_matrix(shape_dict, method="similitude"):
     """
     Compute a pairwise Euclidean distance matrix for a dict of {name: binary_image}.
@@ -38,18 +38,18 @@ def pairwise_distance_matrix(shape_dict, method="similitude"):
         for j in range(n):
             matrix[i, j] = euclidean_distance(descriptors[names[i]], descriptors[names[j]])
     return names, matrix
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # Classifier
 # ─────────────────────────────────────────────
-
+ 
 def is_match(vec1, vec2, threshold):
     """Return (match: bool, distance: float) given a threshold."""
     distance = euclidean_distance(vec1, vec2)
     return distance <= threshold, distance
-
-
+ 
+ 
 def classify_pairs(shape_dict, threshold, method="similitude"):
     """
     For every pair of shapes, predict match/no-match and return results.
@@ -69,12 +69,12 @@ def classify_pairs(shape_dict, threshold, method="similitude"):
                 "predicted_match": dist <= threshold,
             })
     return results
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # Experiment runner
 # ─────────────────────────────────────────────
-
+ 
 def _run(binary, transform_fn, param_values, param_name, shape_name, method):
     """Generic helper: apply a transform at each param value, record distance."""
     records = []
@@ -88,22 +88,22 @@ def _run(binary, transform_fn, param_values, param_name, shape_name, method):
             "distance": dist,
         })
     return records
-
-
+ 
+ 
 def run_rotation(binary, shape_name, angles=None, method="similitude"):
     if angles is None:
         angles = list(range(0, 181, 15))
     return _run(binary, lambda b, a: rotate_image(b, a),
                 angles, "rotation", shape_name, method)
-
-
+ 
+ 
 def run_scaling(binary, shape_name, scales=None, method="similitude"):
     if scales is None:
         scales = [0.4, 0.6, 0.75, 1.0, 1.25, 1.5, 1.75]
     return _run(binary, lambda b, s: scale_image(b, s),
                 scales, "scaling", shape_name, method)
-
-
+ 
+ 
 def run_translation(binary, shape_name, shifts=None, method="similitude"):
     if shifts is None:
         shifts = [(0, 0), (10, 10), (20, -15), (-25, 30), (40, -40), (60, 60)]
@@ -118,40 +118,49 @@ def run_translation(binary, shape_name, shifts=None, method="similitude"):
             "distance": dist,
         })
     return records
-
-
+ 
+ 
 def run_gaussian_noise(binary, shape_name, sigmas=None, method="similitude"):
     if sigmas is None:
         sigmas = [0.01, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20]
     return _run(binary, lambda b, s: add_gaussian_noise(b, sigma=s),
                 sigmas, "gaussian_noise", shape_name, method)
-
-
+ 
+ 
 def run_salt_pepper(binary, shape_name, amounts=None, method="similitude"):
     if amounts is None:
         amounts = [0.01, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20]
     return _run(binary, lambda b, a: add_salt_pepper_noise(b, amount=a),
                 amounts, "salt_pepper", shape_name, method)
-
-
+ 
+ 
 def run_erosion(binary, shape_name, radii=None, method="similitude"):
     if radii is None:
         radii = [1, 2, 3, 5, 7, 10]
     return _run(binary, lambda b, r: erode_boundary(b, radius=r),
                 radii, "erosion", shape_name, method)
-
-
+ 
+ 
 def run_dilation(binary, shape_name, radii=None, method="similitude"):
     if radii is None:
         radii = [1, 2, 3, 5, 7, 10]
     return _run(binary, lambda b, r: dilate_boundary(b, radius=r),
                 radii, "dilation", shape_name, method)
-
-
+ 
+ 
+def run_blur(binary, shape_name, sigmas=None, method="similitude"):
+    """Apply blur-then-threshold at each sigma and record descriptor distance."""
+    if sigmas is None:
+        sigmas = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
+    return _run(binary, lambda b, s: blur_and_threshold(b, sigma=s),
+                sigmas, "blur", shape_name, method)
+ 
+ 
+ 
 # ─────────────────────────────────────────────
 # Accuracy analysis
 # ─────────────────────────────────────────────
-
+ 
 def collect_same_diff_distances(shape_dict, method="similitude"):
     """
     Build same-class distances (original vs transformed variants)
@@ -159,12 +168,12 @@ def collect_same_diff_distances(shape_dict, method="similitude"):
     """
     names, dist_matrix = pairwise_distance_matrix(shape_dict, method=method)
     n = len(names)
-
+ 
     same_distances = []
     test_angles  = [15, 30, 45, 90, 135]
     test_sigmas  = [0.03, 0.05, 0.08]
     test_amounts = [0.03, 0.05, 0.08]
-
+ 
     for name, img in shape_dict.items():
         d_orig = extract_descriptor(img, method=method)
         for angle in test_angles:
@@ -176,12 +185,12 @@ def collect_same_diff_distances(shape_dict, method="similitude"):
         for amt in test_amounts:
             t = largest_component(add_salt_pepper_noise(img, amount=amt))
             same_distances.append(euclidean_distance(d_orig, extract_descriptor(t, method=method)))
-
+ 
     diff_distances = [dist_matrix[i, j]
                       for i in range(n) for j in range(n) if i != j]
     return same_distances, diff_distances
-
-
+ 
+ 
 def per_distortion_accuracy(shape_dict, diff_distances, method="similitude"):
     """Compute accuracy for each individual distortion type."""
     distortions = [
@@ -202,10 +211,12 @@ def per_distortion_accuracy(shape_dict, diff_distances, method="similitude"):
         st = compute_matching_stats(s_dists, diff_distances)
         results.append({"distortion": dist_name, **st})
     return results
-
-
-def print_summary_table(stats, per_dist):
-    """Print the overall stats table and per-distortion accuracy table."""
+ 
+ 
+def print_summary_table(stats, per_dist, save_path=None):
+    """Print the overall stats and per-distortion accuracy tables, and optionally save to CSV."""
+    import csv
+ 
     print("\n  Overall Matching Statistics:")
     print(f"  {'Metric':<35} {'Value':>10}")
     print("  " + "-"*47)
@@ -215,7 +226,7 @@ def print_summary_table(stats, per_dist):
     print(f"  {'Different-shape std':<35} {stats['diff_std']:>10.4f}")
     print(f"  {'Classification threshold':<35} {stats['threshold']:>10.4f}")
     print(f"  {'Overall accuracy':<35} {stats['accuracy']*100:>9.1f}%")
-
+ 
     print("\n  Per-Distortion Accuracy:")
     print(f"  {'Distortion':<25} {'Same μ':>8} {'Same σ':>8} {'Threshold':>10} {'Accuracy':>10}")
     print("  " + "-"*65)
@@ -223,12 +234,37 @@ def print_summary_table(stats, per_dist):
         print(f"  {row['distortion']:<25} {row['same_mean']:>8.4f} "
               f"{row['same_std']:>8.4f} {row['threshold']:>10.4f} "
               f"{row['accuracy']*100:>9.1f}%")
-
-
+ 
+    if save_path:
+        with open(save_path, "w", newline="") as f:
+            writer = csv.writer(f)
+ 
+            writer.writerow(["Overall Matching Statistics"])
+            writer.writerow(["Metric", "Value"])
+            writer.writerow(["Same-shape mean distance", f"{stats['same_mean']:.4f}"])
+            writer.writerow(["Same-shape std", f"{stats['same_std']:.4f}"])
+            writer.writerow(["Different-shape mean distance", f"{stats['diff_mean']:.4f}"])
+            writer.writerow(["Different-shape std", f"{stats['diff_std']:.4f}"])
+            writer.writerow(["Classification threshold", f"{stats['threshold']:.4f}"])
+            writer.writerow(["Overall accuracy", f"{stats['accuracy']*100:.1f}%"])
+            writer.writerow([])
+            writer.writerow(["Per-Distortion Accuracy"])
+            writer.writerow(["Distortion", "Same-Shape Mean", "Same-Shape Std", "Threshold", "Accuracy"])
+            for row in per_dist:
+                writer.writerow([
+                    row["distortion"],
+                    f"{row['same_mean']:.4f}",
+                    f"{row['same_std']:.4f}",
+                    f"{row['threshold']:.4f}",
+                    f"{row['accuracy']*100:.1f}%",
+                ])
+        print(f"\n  Saved: {save_path}")
+ 
+ 
 # ─────────────────────────────────────────────
 # Plotting
 # ─────────────────────────────────────────────
-
+ 
 def plot_pipeline(stages, titles, suptitle="Preprocessing Pipeline", save_path=None):
     fig, axes = plt.subplots(1, len(stages), figsize=(4 * len(stages), 4))
     for ax, img, title in zip(axes, stages, titles):
@@ -241,8 +277,8 @@ def plot_pipeline(stages, titles, suptitle="Preprocessing Pipeline", save_path=N
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
 def plot_shape_gallery(shape_dict, title="Shape Gallery", save_path=None):
     names = list(shape_dict.keys())
     n = len(names)
@@ -261,8 +297,8 @@ def plot_shape_gallery(shape_dict, title="Shape Gallery", save_path=None):
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
 def plot_experiment(x_vals, y_dict, baseline, xlabel, title, save_path=None, x_labels=None):
     """
     Plot same-shape distortion curves for two shapes plus a cross-shape baseline.
@@ -290,8 +326,90 @@ def plot_experiment(x_vals, y_dict, baseline, xlabel, title, save_path=None, x_l
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
+ 
+ 
+def plot_combined_noise(noise_levels, gn_dict, sp_dict, gn_baseline, sp_baseline,
+                        save_path=None):
+    """
+    Combined noise graph showing Gaussian and salt-and-pepper on one plot.
+    gn_dict: {label: [distances]} for Gaussian noise shapes
+    sp_dict: {label: [distances]} for salt-and-pepper noise shapes
+    Both share the same x-axis (noise level 0→0.20).
+    """
+    colors  = ['steelblue', 'royalblue', 'tomato', 'firebrick']
+    markers = ['o', '^', 's', 'D']
+    styles  = ['-', '--', '-', '--']
+ 
+    fig, ax = plt.subplots(figsize=(10, 6))
+ 
+    all_lines = (
+        [(label, y, colors[i], markers[i], styles[i], "Gaussian")
+         for i, (label, y) in enumerate(gn_dict.items())] +
+        [(label, y, colors[2+i], markers[2+i], styles[2+i], "S&P")
+         for i, (label, y) in enumerate(sp_dict.items())]
+    )
+ 
+    for label, y, color, marker, style, noise_type in all_lines:
+        ax.plot(noise_levels, y, marker=marker, color=color, linestyle=style,
+                linewidth=2, label=f"{label} [{noise_type}]")
+ 
+    # Draw both baselines
+    ax.axhline(gn_baseline, color='steelblue', linestyle=':', linewidth=1.5,
+               label=f"Gaussian cross-shape baseline ({gn_baseline:.4f})")
+    ax.axhline(sp_baseline, color='tomato', linestyle=':', linewidth=1.5,
+               label=f"S&P cross-shape baseline ({sp_baseline:.4f})")
+ 
+    ax.set_xlabel("Noise Level", fontsize=12)
+    ax.set_ylabel("Euclidean Distance", fontsize=12)
+    ax.set_title("Phase 3 – Distance vs Noise Level (Gaussian vs Salt-and-Pepper)",
+                 fontsize=13, fontweight='bold')
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=120); plt.close()
+    else:
+        plt.show()
+ 
+ 
+ 
+def plot_segmentation_error(radii, erosion_dict, dilation_dict, baseline,
+                             save_path=None):
+    """
+    Dedicated imperfect segmentation graph.
+    Shows erosion (under-segmentation) vs dilation (over-segmentation)
+    for two shapes on one plot.
+    """
+    colors  = ['steelblue', 'royalblue', 'tomato', 'firebrick']
+    markers = ['o', '^', 's', 'D']
+ 
+    fig, ax = plt.subplots(figsize=(10, 6))
+ 
+    for i, (label, y) in enumerate(erosion_dict.items()):
+        ax.plot(radii, y, marker=markers[i], color=colors[i], linestyle='-',
+                linewidth=2, label=f"{label} [erosion / under-seg]")
+ 
+    for i, (label, y) in enumerate(dilation_dict.items()):
+        ax.plot(radii, y, marker=markers[2+i], color=colors[2+i], linestyle='--',
+                linewidth=2, label=f"{label} [dilation / over-seg]")
+ 
+    ax.axhline(baseline, color='black', linestyle=':', linewidth=1.5,
+               label=f"Cross-shape baseline ({baseline:.4f})")
+ 
+    ax.set_xlabel("Morphological Radius (px)", fontsize=12)
+    ax.set_ylabel("Euclidean Distance", fontsize=12)
+    ax.set_title("Phase 3 – Imperfect Segmentation: Erosion vs Dilation",
+                 fontsize=13, fontweight='bold')
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path, dpi=120); plt.close()
+    else:
+        plt.show()
+ 
 def plot_histogram(same_distances, diff_distances, title="Distance Histogram",
                    threshold=None, save_path=None):
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -310,8 +428,8 @@ def plot_histogram(same_distances, diff_distances, title="Distance Histogram",
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
 def plot_distance_matrix(names, matrix, title="Pairwise Distance Matrix", save_path=None):
     n = len(names)
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -332,8 +450,8 @@ def plot_distance_matrix(names, matrix, title="Pairwise Distance Matrix", save_p
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
 def plot_match_vs_mismatch(img_a1, img_b1, dist1, label_a1, label_b1,
                             img_a2, img_b2, dist2, label_a2, label_b2,
                             save_path=None):
@@ -351,12 +469,12 @@ def plot_match_vs_mismatch(img_a1, img_b1, dist1, label_a1, label_b1,
         plt.savefig(save_path, dpi=120); plt.close()
     else:
         plt.show()
-
-
+ 
+ 
 # ─────────────────────────────────────────────
 # Failure analysis
 # ─────────────────────────────────────────────
-
+ 
 def find_hard_easy_pairs(names, matrix):
     """Return pairs sorted hardest (smallest distance) to easiest (largest)."""
     pairs = []
@@ -366,8 +484,8 @@ def find_hard_easy_pairs(names, matrix):
             pairs.append((names[i], names[j], matrix[i, j]))
     pairs.sort(key=lambda x: x[2])
     return pairs
-
-
+ 
+ 
 def print_failure_report(shape_dict, method="similitude"):
     """Full failure case analysis and written discussion."""
     names, matrix = pairwise_distance_matrix(shape_dict, method=method)
@@ -375,145 +493,65 @@ def print_failure_report(shape_dict, method="similitude"):
     per_dist = per_distortion_accuracy(shape_dict, diff_dists, method=method)
     pairs = find_hard_easy_pairs(names, matrix)
     failures = [row["distortion"] for row in per_dist if row["same_mean"] > 0.02]
-
+ 
     print("\n" + "="*60)
     print("  FAILURE CASE ANALYSIS")
     print("="*60)
-
+ 
     print("\n  Pairs ranked hardest → easiest to separate:")
     print(f"  {'Pair':<32} {'Distance':>10}  {'Difficulty'}")
     print("  " + "-"*55)
     for i, (a, b, d) in enumerate(pairs):
         difficulty = "HARD" if i < 3 else ("EASY" if i >= len(pairs) - 3 else "    ")
         print(f"  {a+' vs '+b:<32} {d:>10.4f}  {difficulty}")
-
+ 
     print("\n  Distortions causing most descriptor drift:")
     if failures:
         for f in failures:
             print(f"    ✗  {f} — same-shape distance exceeded stability threshold")
     else:
         print("    ✓  All distortions within acceptable range")
-
+ 
     print("\n  Per-distortion accuracy summary:")
     for row in per_dist:
         status = "✓" if row["accuracy"] >= 0.75 else "✗"
         print(f"    {status}  {row['distortion']:<22}  accuracy = {row['accuracy']*100:.1f}%")
-
+ 
     hardest = pairs[0]
     easiest = pairs[-1]
     print(f"""
   Discussion:
-
+ 
   Hardest pair: {hardest[0]} vs {hardest[1]} (distance = {hardest[2]:.4f})
     Both shapes are convex with smooth, rotationally symmetric boundaries.
     Their Hu moment vectors are nearly identical, making them the most
     challenging pair for this descriptor to distinguish.
-
+ 
   Easiest pair: {easiest[0]} vs {easiest[1]} (distance = {easiest[2]:.4f})
     These shapes have strongly contrasting moment profiles, so they remain
     well-separated even under significant noise or transformation.
-
+ 
   Rotation invariance:
     Descriptors remain stable under rotation as expected from Hu moment
     theory. Small residual drift at large angles is due to pixelation
     artefacts at the shape boundary after transformation.
-
+ 
   Noise sensitivity:
     Salt-and-pepper noise causes higher descriptor drift than Gaussian
     noise at equivalent intensity levels. Isolated flipped pixels shift
     boundary moment contributions more sharply than Gaussian perturbations.
-
+ 
   Boundary damage (erosion / dilation):
     Erosion and dilation at small radii (<=3 px) have minimal impact.
     Larger radii alter the shape's aspect ratio and area, which are
     encoded in the lower-order moments, increasing descriptor distance.
-
+ 
   Scale invariance:
     Descriptors are mathematically scale-invariant via normalised moments.
     Residual error at extreme scale factors (< 0.5x) is caused by loss
     of shape detail at low resolution.
-
+ 
   Translation invariance:
     Descriptors are fully translation-invariant by construction (central
     moments). Near-zero distances for all translation cases confirm this.
     """)
-    
-# import numpy as np
-# import matplotlib.pyplot as plt
-
-# from preprocessing import preprocess_image, largest_component
-# from transforms import (
-#     rotate_image,
-#     scale_image,
-#     translate_image,
-#     add_gaussian_noise,
-#     add_salt_pepper_noise
-# )
-# from descriptors import extract_descriptor
-# from matching import euclidean_distance
-
-
-# def descriptor_distance(binary1, binary2, method="similitude"):
-#     d1 = extract_descriptor(binary1, method=method)
-#     d2 = extract_descriptor(binary2, method=method)
-#     return euclidean_distance(d1, d2)
-
-
-# def test_rotation(binary, angles, method="similitude"):
-#     distances = []
-#     for angle in angles:
-#         transformed = rotate_image(binary, angle)
-#         transformed = largest_component(transformed)
-#         dist = descriptor_distance(binary, transformed, method=method)
-#         distances.append(dist)
-#     return distances
-
-
-# def test_scaling(binary, scales, method="similitude"):
-#     distances = []
-#     for scale in scales:
-#         transformed = scale_image(binary, scale)
-#         transformed = largest_component(transformed)
-#         dist = descriptor_distance(binary, transformed, method=method)
-#         distances.append(dist)
-#     return distances
-
-
-# def test_translation(binary, shifts, method="similitude"):
-#     distances = []
-#     for shift_y, shift_x in shifts:
-#         transformed = translate_image(binary, shift_y, shift_x)
-#         transformed = largest_component(transformed)
-#         dist = descriptor_distance(binary, transformed, method=method)
-#         distances.append(dist)
-#     return distances
-
-
-# def test_gaussian_noise(binary, sigmas, method="similitude"):
-#     distances = []
-#     for sigma in sigmas:
-#         transformed = add_gaussian_noise(binary, sigma=sigma)
-#         transformed = largest_component(transformed)
-#         dist = descriptor_distance(binary, transformed, method=method)
-#         distances.append(dist)
-#     return distances
-
-
-# def test_salt_pepper_noise(binary, amounts, method="similitude"):
-#     distances = []
-#     for amount in amounts:
-#         transformed = add_salt_pepper_noise(binary, amount=amount)
-#         transformed = largest_component(transformed)
-#         dist = descriptor_distance(binary, transformed, method=method)
-#         distances.append(dist)
-#     return distances
-
-
-# def plot_curve(x, y, xlabel, ylabel, title):
-#     plt.figure(figsize=(7, 5))
-#     plt.plot(x, y, marker='o')
-#     plt.xlabel(xlabel)
-#     plt.ylabel(ylabel)
-#     plt.title(title)
-#     plt.grid(True)
-#     plt.show()

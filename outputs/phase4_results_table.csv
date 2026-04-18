@@ -1,0 +1,17 @@
+Overall Matching Statistics
+Metric,Value
+Same-shape mean distance,0.0012
+Same-shape std,0.0021
+Different-shape mean distance,0.0198
+Different-shape std,0.0106
+Classification threshold,0.0105
+Overall accuracy,91.7%
+
+Per-Distortion Accuracy
+Distortion,Same-Shape Mean,Same-Shape Std,Threshold,Accuracy
+Rotation 15°,0.0000,0.0000,0.0099,77.8%
+Rotation 90°,0.0000,0.0000,0.0099,77.8%
+Gaussian σ=0.05,0.0000,0.0000,0.0099,77.8%
+S&P amt=0.05,0.0040,0.0005,0.0119,72.2%
+Erosion r=3,0.0011,0.0015,0.0105,77.8%
+Dilation r=3,0.0013,0.0012,0.0105,77.8%
