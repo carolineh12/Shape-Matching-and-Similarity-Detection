@@ -2,6 +2,7 @@ import os
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from skimage.draw import disk, polygon, rectangle, ellipse
 from skimage import io as skio
 from preprocessing import (
@@ -28,6 +29,7 @@ from experiments import (
     plot_histogram, plot_distance_matrix, plot_match_vs_mismatch,
     # failure analysis
     print_failure_report,
+    find_hard_easy_pairs,
 )
 
 OUTPUT_DIR = "outputs"
@@ -199,30 +201,26 @@ def phase2c():
     )
     print("  Saved: phase2c_silhouettes.png")
 
-    # show pipeline on one silhouette to demonstrate real image preprocessing
-    from preprocessing import to_grayscale, binarize_image, clean_binary, largest_component
-    import os as _os
-    # use first available silhouette for the pipeline demo
+    # Reuse already-loaded SILHOUETTES — grab first entry for pipeline demo
+    first_name, first_component = next(iter(SILHOUETTES.items()))
+
+    # Re-run preprocessing stages so we have intermediate images to display
     supported = ('.png', '.jpg', '.jpeg', '.webp', '.bmp')
-    first_file = next((f for f in sorted(_os.listdir(SILHOUETTE_DIR)) if f.lower().endswith(supported)), None)
-    
-    if first_file is None:
-        print("  No silhouettes found for pipeline demo, skipping.")
-        return
-    first_name = _os.path.splitext(first_file)[0].replace('_',' ').title()
-    raw = skio.imread(_os.path.join(SILHOUETTE_DIR, first_file))
+    first_file = next((f for f in sorted(os.listdir(SILHOUETTE_DIR)) if f.lower().endswith(supported)), None)
+    raw = skio.imread(os.path.join(SILHOUETTE_DIR, first_file))
 
     if raw.ndim == 2:
         raw = np.stack([raw]*3, axis=-1)
     elif raw.shape[-1] == 4:
         raw = raw[..., :3]
 
+    from preprocessing import to_grayscale, binarize_image, clean_binary, largest_component
     gray = to_grayscale(raw)
     binary = binarize_image(gray)
     cleaned = clean_binary(binary)
-    comp = largest_component(cleaned)
+
     plot_pipeline(
-        stages=[raw, gray, binary, cleaned, comp],
+        stages=[raw, gray, binary, cleaned, first_component],
         titles=["Raw silhouette", "Grayscale", "Binary (Otsu)", "Cleaned", "Largest Component"],
         suptitle=f"Phase 2c – Real Silhouette Preprocessing Pipeline ({first_name})",
         save_path=os.path.join(OUTPUT_DIR, "phase2c_silhouette_pipeline.png"),
@@ -302,7 +300,7 @@ def phase3():
 
     # blur transform, triangle vs rectangle
     # simulates slightly out of focus or low resolution image before segmentation
-    blur_sigmas = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
+    blur_sigmas = [1.0, 1.5, 2.0, 3.0, 4.0, 5.0]
     bl_tri = [r["distance"] for r in run_blur(triangle, "Triangle", blur_sigmas, METHOD)]
     bl_rect = [r["distance"] for r in run_blur(rectangle,"Rectangle", blur_sigmas, METHOD)]
     plot_experiment(blur_sigmas, {"Triangle": bl_tri, "Rectangle": bl_rect}, _cross_shape_distance(triangle, rectangle), "Blur Sigma (px)", "Phase 3 – Distance vs Blur (pre-threshold)", save_path=os.path.join(OUTPUT_DIR, "phase3_blur.png"))
@@ -316,6 +314,42 @@ def phase3():
     di_rect = [r["distance"] for r in run_dilation(rectangle, "Rectangle", radii, METHOD)]
     plot_segmentation_error(radii, erosion_dict={"Triangle": er_tri, "Rectangle": er_rect}, dilation_dict={"Triangle": di_tri, "Rectangle": di_rect}, baseline=_cross_shape_distance(triangle, rectangle), save_path=os.path.join(OUTPUT_DIR, "phase3_segmentation_error.png"))
     print("  Saved: phase3_segmentation_error.png")
+
+    # synthetic vs real silhouette comparison
+    if SILHOUETTES:
+        cat = SILHOUETTES.get("Cat Silhouette")
+        tree = SILHOUETTES.get("Tree Silhouette")
+
+        if cat is not None and tree is not None:
+            # rotation
+            sil_angles = list(range(0, 181, 15))
+            rot_cat = [r["distance"] for r in run_rotation(cat,      "Cat",      sil_angles, METHOD)]
+            rot_tree = [r["distance"] for r in run_rotation(tree,     "Tree",     sil_angles, METHOD)]
+            rot_tri = [r["distance"] for r in run_rotation(SHAPES["Triangle"], "Triangle", sil_angles, METHOD)]
+            plot_experiment(
+                sil_angles,
+                {"Cat (real)": rot_cat, "Tree (real)": rot_tree, "Triangle (synthetic)": rot_tri},
+                _cross_shape_distance(cat, SHAPES["Triangle"]),
+                "Rotation Angle (degrees)",
+                "Phase 3 – Synthetic vs Real: Distance vs Rotation",
+                save_path=os.path.join(OUTPUT_DIR, "phase3_real_vs_synthetic_rotation.png"),
+            )
+            print("  Saved: phase3_real_vs_synthetic_rotation.png")
+
+            # salt and pepper
+            sil_amounts = [0.01, 0.03, 0.05, 0.08, 0.10, 0.15, 0.20]
+            sp_cat = [r["distance"] for r in run_salt_pepper(cat,  "Cat",  sil_amounts, METHOD)]
+            sp_tree = [r["distance"] for r in run_salt_pepper(tree, "Tree", sil_amounts, METHOD)]
+            sp_tri = [r["distance"] for r in run_salt_pepper(SHAPES["Triangle"], "Triangle", sil_amounts, METHOD)]
+            plot_experiment(
+                sil_amounts,
+                {"Cat (real)": sp_cat, "Tree (real)": sp_tree, "Triangle (synthetic)": sp_tri},
+                _cross_shape_distance(cat, SHAPES["Triangle"]),
+                "Salt & Pepper Amount",
+                "Phase 3 – Synthetic vs Real: Distance vs S&P Noise",
+                save_path=os.path.join(OUTPUT_DIR, "phase3_real_vs_synthetic_sp.png"),
+            )
+            print("  Saved: phase3_real_vs_synthetic_sp.png")
 
 # Phase 4 – Analysis
 def phase4():
@@ -338,7 +372,7 @@ def phase4():
 
     same_dists, diff_dists = collect_same_diff_distances(SHAPES, method=METHOD)
     stats = compute_matching_stats(same_dists, diff_dists)
-    per_dist = per_distortion_accuracy(SHAPES, diff_dists, method=METHOD)
+    per_dist = per_distortion_accuracy(SHAPES, diff_dists, method=METHOD, global_threshold=stats["threshold"])
 
     # pair classification results
     test_shapes = {
@@ -372,6 +406,40 @@ def phase4():
     print("  Saved: phase4_match_vs_mismatch.png")
     print_summary_table(stats, per_dist, save_path=os.path.join(OUTPUT_DIR, "phase4_results_table.csv"))
     print_failure_report(SHAPES, method=METHOD)
+
+    # Failure analysis figure: hardest pair under increasing distortion
+    names, matrix = pairwise_distance_matrix(SHAPES, method=METHOD)
+    pairs = find_hard_easy_pairs(names, matrix)
+    hard_a_name, hard_b_name, _ = pairs[0]
+    hard_a = SHAPES[hard_a_name]
+    hard_b = SHAPES[hard_b_name]
+
+    test_angles = [0, 15, 30, 45, 90, 135, 180]
+    fig, axes = plt.subplots(2, len(test_angles), figsize=(3 * len(test_angles), 6))
+
+    for col, angle in enumerate(test_angles):
+        rot_a = largest_component(rotate_image(hard_a, angle))
+        rot_b = largest_component(rotate_image(hard_b, angle))
+        d = descriptor_distance(hard_a, rot_a, method=METHOD)
+
+        axes[0, col].imshow(rot_a, cmap='gray')
+        axes[0, col].set_title(f"{angle}°\nd={d:.3f}", fontsize=8)
+        axes[0, col].axis('off')
+
+        axes[1, col].imshow(rot_b, cmap='gray')
+        axes[1, col].set_title(f"{hard_b_name}\n{angle}°", fontsize=8)
+        axes[1, col].axis('off')
+
+    axes[0, 0].set_ylabel(hard_a_name, fontsize=9)
+    axes[1, 0].set_ylabel(hard_b_name, fontsize=9)
+    fig.suptitle(
+        f"Phase 4 – Hardest Pair: {hard_a_name} vs {hard_b_name} Under Rotation",
+        fontsize=13, fontweight='bold'
+    )
+    plt.tight_layout()
+    fig.savefig(os.path.join(OUTPUT_DIR, "phase4_failure_hardest_pair.png"), dpi=120)
+    plt.close(fig)
+    print("  Saved: phase4_failure_hardest_pair.png")
 
 # entry point
 def main():

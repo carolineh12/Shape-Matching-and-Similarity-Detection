@@ -15,14 +15,17 @@ def to_grayscale(image):
 def binarize_image(gray, threshold=None):
     if threshold is None:
         threshold = filters.threshold_otsu(gray)
-    binary = gray < threshold if np.mean(gray) > 0.5 else gray > threshold
+    # check border pixels to determine background color
+    border = np.concatenate([gray[0,:], gray[-1,:], gray[:,0], gray[:,-1]])
+    background_is_bright = np.mean(border) > 0.5
+    binary = gray < threshold if background_is_bright else gray > threshold
     return binary.astype(np.uint8)
 
 # remove small objects/holes and apply light morphology
 def clean_binary(binary, min_size=100):
     mask = binary.astype(bool)
-    mask = morphology.remove_small_objects(mask, min_size=min_size)
-    mask = morphology.remove_small_holes(mask, area_threshold=min_size)
+    mask = morphology.remove_small_objects(mask, max_size=min_size)
+    mask = morphology.remove_small_holes(mask, max_size=min_size)
     mask = morphology.opening(mask, morphology.disk(2))
     mask = morphology.closing(mask, morphology.disk(2))
     return mask.astype(np.uint8)
@@ -36,16 +39,6 @@ def largest_component(binary):
     largest_region = max(props, key=lambda r: r.area)
     mask = labels == largest_region.label
     return mask.astype(np.uint8)
-
-# simulate segmentation under-detection by erosion
-def erode_shape(binary, radius=3):
-    selem = morphology.disk(radius)
-    return morphology.erosion(binary.astype(bool), selem).astype(np.uint8)
-
-# simulate segmentation over-detection by dilation
-def dilate_shape(binary, radius=3):
-    selem = morphology.disk(radius)
-    return morphology.dilation(binary.astype(bool), selem).astype(np.uint8)
 
 # full preprocessing pipeline from grayscale -> binary -> cleaned -> largest component
 def preprocess_image(image, threshold=None, min_size=100):

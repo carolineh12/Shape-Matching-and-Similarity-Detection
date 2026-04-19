@@ -9,7 +9,7 @@ from transforms import (
     erode_boundary, dilate_boundary, blur_and_threshold,
 )
 from descriptors import extract_descriptor
-from matching import euclidean_distance, compute_threshold, compute_matching_stats
+from matching import euclidean_distance, compute_threshold, compute_accuracy, compute_matching_stats
 
 # Similarity
 # Extract descriptors from two binary images and return their Euclidean distance.
@@ -156,14 +156,14 @@ def collect_same_diff_distances(shape_dict, method="similitude"):
     return same_distances, diff_distances
 
 # Compute accuracy for each individual distortion type.
-def per_distortion_accuracy(shape_dict, diff_distances, method="similitude"):
+def per_distortion_accuracy(shape_dict, diff_distances, method="similitude", global_threshold=None):
     distortions = [
-        ("Rotation 15°",    lambda i: largest_component(rotate_image(i, 15))),
-        ("Rotation 90°",    lambda i: largest_component(rotate_image(i, 90))),
+        ("Rotation 15°", lambda i: largest_component(rotate_image(i, 15))),
+        ("Rotation 90°", lambda i: largest_component(rotate_image(i, 90))),
         ("Gaussian σ=0.05", lambda i: largest_component(add_gaussian_noise(i, 0.05))),
-        ("S&P amt=0.05",    lambda i: largest_component(add_salt_pepper_noise(i, 0.05))),
-        ("Erosion r=3",     lambda i: largest_component(erode_boundary(i, 3))),
-        ("Dilation r=3",    lambda i: largest_component(dilate_boundary(i, 3))),
+        ("S&P amt=0.05", lambda i: largest_component(add_salt_pepper_noise(i, 0.05))),
+        ("Erosion r=3", lambda i: largest_component(erode_boundary(i, 3))),
+        ("Dilation r=3", lambda i: largest_component(dilate_boundary(i, 3))),
     ]
     results = []
 
@@ -173,8 +173,17 @@ def per_distortion_accuracy(shape_dict, diff_distances, method="similitude"):
             d_orig = extract_descriptor(img, method=method)
             t = fn(img)
             s_dists.append(euclidean_distance(d_orig, extract_descriptor(t, method=method)))
-        st = compute_matching_stats(s_dists, diff_distances)
-        results.append({"distortion": dist_name, **st})
+
+        # use global threshold if provided, otherwise compute per-distortion
+        threshold = global_threshold if global_threshold is not None else compute_threshold(s_dists, diff_distances)
+        accuracy = compute_accuracy(s_dists, diff_distances, threshold)
+        results.append({
+            "distortion": dist_name,
+            "same_mean": np.mean(s_dists),
+            "same_std": np.std(s_dists),
+            "threshold": threshold,
+            "accuracy": accuracy,
+        })
 
     return results
 
@@ -330,8 +339,8 @@ def plot_shape_gallery(shape_dict, title="Shape Gallery", save_path=None):
 
 # Plot same-shape distortion curves for two shapes plus a cross-shape baseline.
 def plot_experiment(x_vals, y_dict, baseline, xlabel, title, save_path=None, x_labels=None):
-    colors  = ['steelblue', 'tomato']
-    markers = ['o', 's']
+    colors  = ['steelblue', 'tomato', 'seagreen', 'purple']
+    markers = ['o', 's', '^', 'D']
     fig, ax = plt.subplots(figsize=(9, 5))
 
     for i, (label, y) in enumerate(y_dict.items()):
@@ -484,10 +493,10 @@ def find_hard_easy_pairs(names, matrix):
 def print_failure_report(shape_dict, method="similitude"):
     names, matrix = pairwise_distance_matrix(shape_dict, method=method)
     same_dists, diff_dists = collect_same_diff_distances(shape_dict, method=method)
-    per_dist = per_distortion_accuracy(shape_dict, diff_dists, method=method)
+    stats = compute_matching_stats(same_dists, diff_dists)
+    per_dist = per_distortion_accuracy(shape_dict, diff_dists, method=method, global_threshold=stats["threshold"])
     pairs = find_hard_easy_pairs(names, matrix)
-    failures = [row["distortion"] for row in per_dist if row["same_mean"] > 0.02]
-
+    failures = [row["distortion"] for row in per_dist if row["same_mean"] > 0.002]
     print("\n" + "="*60)
     print("  FAILURE CASE ANALYSIS")
     print("="*60)
@@ -506,8 +515,10 @@ def print_failure_report(shape_dict, method="similitude"):
         print(f"    - {row['distortion']} produced relatively larger same-shape drift")
     
     for row in per_dist:
-        status = "✓" if row["accuracy"] >= 0.75 else "✗"
+        status = "✓" if row["accuracy"] >= 0.80 else "✗"
         print(f"    {status}  {row['distortion']:<22}  accuracy = {row['accuracy']*100:.1f}%")
 
     hardest = pairs[0]
     easiest = pairs[-1]
+    print(f"\n  Hardest pair to separate: {hardest[0]} vs {hardest[1]} (distance = {hardest[2]:.4f})")
+    print(f"  Easiest pair to separate: {easiest[0]} vs {easiest[1]} (distance = {easiest[2]:.4f})")
